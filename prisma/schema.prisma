@@ -1,0 +1,66 @@
+// This service does NOT own migrations. It connects to the same DB as
+// gc-ai-assistant (the dashboard app), which is the source of truth for the
+// schema and runs `prisma migrate`. This file only exists so this service
+// can generate a typed Prisma Client against the tables it actually touches:
+// User + Account (to read the Google refresh token NextAuth stored) and
+// EmailRecord (to write parsed emails). Keep field names/types in sync with
+// gc-ai-assistant/prisma/schema.prisma by hand if that schema changes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String  @id @default(cuid())
+  email           String? @unique
+  googleConnected Boolean @default(false)
+
+  accounts Account[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+enum EmailCategory {
+  SUBCONTRACTOR_UPDATE
+  PERMIT
+  BID_INVITE
+  CLIENT
+  SCHEDULING
+  OTHER
+}
+
+model EmailRecord {
+  id            String        @id @default(cuid())
+  gmailId       String        @unique
+  threadId      String?
+  from          String
+  subject       String
+  receivedAt    DateTime
+  snippet       String?       @db.Text
+  category      EmailCategory @default(OTHER)
+  summary       String?       @db.Text
+  actionItem    String?       @db.Text
+  requiresReply Boolean       @default(false)
+
+  // Left as a plain scalar (no relation) on purpose: this service doesn't
+  // need to know about the Project model at all. The dashboard app owns
+  // that relation and can assign projectId later.
+  projectId String?
+
+  createdAt DateTime @default(now())
+}
