@@ -57,6 +57,11 @@ model EmailRecord {
   actionItem    String?       @db.Text
   requiresReply Boolean       @default(false)
 
+  meetingTitle    String?
+  meetingAt       DateTime?
+  meetingAddress  String?
+  addedToCalendar Boolean   @default(false)
+
   // Left as a plain scalar (no relation) on purpose: this service doesn't
   // need to know about the Project model at all. The dashboard app owns
   // that relation and can assign projectId later.

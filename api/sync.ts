@@ -86,8 +86,17 @@ async function syncUserGmail(userId: string, days: number) {
     const subject = getHeader(headers, "Subject") || "(no subject)";
     const dateHeader = getHeader(headers, "Date");
     const body = extractPlainText(full.data.payload ?? undefined);
+    const receivedAt = dateHeader ? new Date(dateHeader) : new Date();
 
-    const classification = await classifyEmail({ from, subject, body });
+    const classification = await classifyEmail({ from, subject, body, receivedAt });
+
+    const meetingAt = classification.meetingAt ? new Date(classification.meetingAt) : null;
+    // Guard against a parse failure or an obviously-wrong (past) date rather
+    // than trusting the model's ISO string blindly.
+    const validMeetingAt =
+      meetingAt && !isNaN(meetingAt.getTime()) && meetingAt.getTime() > Date.now()
+        ? meetingAt
+        : null;
 
     await prisma.emailRecord.create({
       data: {
@@ -95,12 +104,15 @@ async function syncUserGmail(userId: string, days: number) {
         threadId: full.data.threadId ?? undefined,
         from,
         subject,
-        receivedAt: dateHeader ? new Date(dateHeader) : new Date(),
+        receivedAt,
         snippet: full.data.snippet ?? undefined,
         category: classification.category,
         summary: classification.summary,
         actionItem: classification.actionItem ?? undefined,
         requiresReply: classification.requiresReply,
+        meetingTitle: validMeetingAt ? classification.meetingTitle ?? undefined : undefined,
+        meetingAt: validMeetingAt ?? undefined,
+        meetingAddress: validMeetingAt ? classification.meetingAddress ?? undefined : undefined,
       },
     });
     created++;
