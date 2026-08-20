@@ -113,6 +113,10 @@ async function syncUserGmail(userId: string, days: number) {
         meetingTitle: validMeetingAt ? classification.meetingTitle ?? undefined : undefined,
         meetingAt: validMeetingAt ?? undefined,
         meetingAddress: validMeetingAt ? classification.meetingAddress ?? undefined : undefined,
+        bidProjectNumber: classification.bidProjectNumber ?? undefined,
+        bidAgencyShort: classification.bidAgencyShort ?? undefined,
+        bidSummary: classification.bidSummary ?? undefined,
+        bidAddress: classification.bidAddress ?? undefined,
       },
     });
     created++;

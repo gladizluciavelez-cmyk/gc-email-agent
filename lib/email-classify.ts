@@ -15,6 +15,10 @@ export interface EmailClassification {
   meetingTitle: string | null;
   meetingAt: string | null; // ISO 8601 with explicit US Eastern offset, or null
   meetingAddress: string | null;
+  bidProjectNumber: string | null;
+  bidAgencyShort: string | null;
+  bidSummary: string | null;
+  bidAddress: string | null;
 }
 
 const SYSTEM_PROMPT = `You triage inbound email for a general contractor (GC) in
@@ -53,6 +57,33 @@ than completeness here:
   Resurfacing Project".
 If none of this applies to the email, all three fields are null.
 
+Bid-opportunity title parsing — for BID_INVITE emails only:
+Agencies name their solicitation emails very inconsistently — subjects range
+from clean ("City of Tamarac — Road Resurfacing, Project No. 2026-14") to
+dense run-ons ("New Opportunity Issued by Central Florida Expressway
+Authority: Invitation to Bid for SR 453 at SR 46 Safety Improvements
+[Project No. 453-453]"). Rather than trying to regex-parse these, extract
+four pieces so the dashboard can build a clean, consistent title:
+- bidProjectNumber: the project/solicitation number as written (e.g.
+  "453-453", "2026-14"), without surrounding brackets or the words "Project
+  No." — just the number/code itself. Null if none is stated.
+- bidAgencyShort: a short, recognizable form of the issuing agency — prefer
+  a natural abbreviation if the agency commonly uses one (e.g. "Central
+  Florida Expressway Authority" -> "CFE Authority", "Miami-Dade County
+  Public Schools" -> "Miami-Dade Schools"), otherwise just a shortened
+  version of the full name. Do not invent an abbreviation that isn't a
+  reasonable shortening of the actual name. Null if no agency is identifiable.
+- bidSummary: a 1-3 word plain description of what the project actually is,
+  using the email's own wording where possible (e.g. "Safety Improvements",
+  "Road Resurfacing", "Roof Replacement"). Do not editorialize or guess a
+  trade that isn't indicated by the text — if the email says "Safety
+  Improvements", use that, not a specific trade you're inferring. Null if
+  genuinely unclear.
+- bidAddress: the project's physical address/location as stated. If the
+  email lists more than one distinct address/location for the same project,
+  set this to exactly "Multiple addresses" instead of picking one. Null if
+  no address is given.
+
 Respond with ONLY a JSON object matching this shape, no prose:
 {
   "category": "...",
@@ -62,7 +93,11 @@ Respond with ONLY a JSON object matching this shape, no prose:
   "projectHint": "best guess at project name/address mentioned, or null",
   "meetingTitle": "... or null",
   "meetingAt": "ISO 8601 with -04:00/-05:00 offset, or null",
-  "meetingAddress": "... or null"
+  "meetingAddress": "... or null",
+  "bidProjectNumber": "... or null",
+  "bidAgencyShort": "... or null",
+  "bidSummary": "... or null",
+  "bidAddress": "... or null"
 }`;
 
 export async function classifyEmail(params: {
@@ -103,6 +138,10 @@ export async function classifyEmail(params: {
       meetingTitle: null,
       meetingAt: null,
       meetingAddress: null,
+      bidProjectNumber: null,
+      bidAgencyShort: null,
+      bidSummary: null,
+      bidAddress: null,
     };
   }
 }
