@@ -55,6 +55,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// Runs `worker` over `items` with at most `limit` running concurrently,
+// instead of either fully sequential (slow, risks the function timeout) or
+// fully parallel (risks bursting past Gmail/Anthropic rate limits).
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+
+  async function runNext(): Promise<void> {
+    const i = next++;
+    if (i >= items.length) return;
+    results[i] = await worker(items[i]);
+    await runNext();
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runNext));
+  return results;
+}
+
 async function syncUserGmail(userId: string, days: number) {
   const gmail = await getGmailClient(userId);
 
@@ -65,16 +87,21 @@ async function syncUserGmail(userId: string, days: number) {
   });
 
   const messageIds = list.data.messages?.map((m) => m.id!) ?? [];
-  let created = 0;
-  let skipped = 0;
 
-  for (const gmailId of messageIds) {
-    const exists = await prisma.emailRecord.findUnique({ where: { gmailId } });
-    if (exists) {
-      skipped++;
-      continue;
-    }
+  // Filter out ones we've already synced before doing any of the expensive
+  // Gmail-fetch + Anthropic-classify work below.
+  const existing = await prisma.emailRecord.findMany({
+    where: { gmailId: { in: messageIds } },
+    select: { gmailId: true },
+  });
+  const existingIds = new Set(existing.map((e: { gmailId: string }) => e.gmailId));
+  const newIds = messageIds.filter((id) => !existingIds.has(id));
+  const skipped = messageIds.length - newIds.length;
 
+  // Process new messages with limited concurrency (5 at a time) rather than
+  // one at a time — sequential processing of a backlog easily blows past
+  // Vercel's function time limit; too much concurrency risks rate limits.
+  const outcomes = await mapWithConcurrency(newIds, 5, async (gmailId) => {
     const full = await gmail.users.messages.get({
       userId: "me",
       id: gmailId,
@@ -119,8 +146,7 @@ async function syncUserGmail(userId: string, days: number) {
         bidAddress: classification.bidAddress ?? undefined,
       },
     });
-    created++;
-  }
+  });
 
-  return { scanned: messageIds.length, created, skipped };
+  return { scanned: messageIds.length, created: outcomes.length, skipped };
 }
