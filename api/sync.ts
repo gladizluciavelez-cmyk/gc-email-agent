@@ -136,7 +136,11 @@ async function syncUserGmail(userId: string, days: number) {
     const subject = getHeader(headers, "Subject") || "(no subject)";
     const dateHeader = getHeader(headers, "Date");
     const body = extractPlainText(full.data.payload ?? undefined);
-    const receivedAt = dateHeader ? new Date(dateHeader) : new Date();
+    // Some senders put a wrong (future) Date header on mail, which would pin it
+    // to the top of newest-first lists forever. Never trust a date past "now".
+    const parsedDate = dateHeader ? new Date(dateHeader) : new Date();
+    const receivedAt =
+      isNaN(parsedDate.getTime()) || parsedDate.getTime() > Date.now() ? new Date() : parsedDate;
 
     const classification = await classifyEmail({ from, subject, body, receivedAt });
 
