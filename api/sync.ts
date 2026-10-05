@@ -108,6 +108,16 @@ async function syncUserGmail(userId: string, days: number) {
     select: { gmailId: true },
   });
   const existingIds = new Set(existing.map((e: { gmailId: string }) => e.gmailId));
+
+  // Emails synced before mailbox tracking have no owner. A Gmail message id
+  // only ever exists in one mailbox, so if this user's inbox returns it, it is
+  // theirs: claim it.
+  if (existingIds.size > 0) {
+    await prisma.emailRecord.updateMany({
+      where: { gmailId: { in: Array.from(existingIds) }, orgId, userId: null },
+      data: { userId },
+    });
+  }
   const newIds = messageIds.filter((id) => !existingIds.has(id));
   const skipped = messageIds.length - newIds.length;
 
@@ -141,6 +151,7 @@ async function syncUserGmail(userId: string, days: number) {
     await prisma.emailRecord.create({
       data: {
         orgId,
+        userId,
         gmailId,
         threadId: full.data.threadId ?? undefined,
         from,
