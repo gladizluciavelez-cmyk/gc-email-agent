@@ -19,6 +19,7 @@ model User {
   id              String  @id @default(cuid())
   email           String? @unique
   googleConnected Boolean @default(false)
+  orgId           String? // owning organization; set by the dashboard app
 
   accounts Account[]
 }
@@ -71,6 +72,10 @@ model EmailRecord {
   // need to know about the Project model at all. The dashboard app owns
   // that relation and can assign projectId later.
   projectId String?
+
+  // Tenant owner. Plain scalar (no relation) for the same reason as projectId;
+  // every EmailRecord this service writes must carry the syncing user's orgId.
+  orgId String?
 
   createdAt DateTime @default(now())
 }

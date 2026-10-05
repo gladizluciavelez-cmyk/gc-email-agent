@@ -43,7 +43,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const results: Record<string, unknown> = {};
 
     for (const user of targetUsers) {
-      results[user.id] = await syncUserGmail(user.id, days);
+      // One user's failure (expired token, no org yet) shouldn't stop the others.
+      try {
+        results[user.id] = await syncUserGmail(user.id, days);
+      } catch (err) {
+        results[user.id] = { error: err instanceof Error ? err.message : "Unknown error" };
+      }
     }
 
     res.status(200).json({ ok: true, results });
@@ -78,6 +83,14 @@ async function mapWithConcurrency<T, R>(
 }
 
 async function syncUserGmail(userId: string, days: number) {
+  // Every email is stored under the user's organization so customers only ever
+  // see their own mail. orgId is created by the dashboard app at first sign-in.
+  const owner = await prisma.user.findUnique({ where: { id: userId }, select: { orgId: true } });
+  if (!owner?.orgId) {
+    throw new Error("User has no organization yet — sign in to the dashboard once, then sync again.");
+  }
+  const orgId = owner.orgId;
+
   const gmail = await getGmailClient(userId);
 
   const list = await gmail.users.messages.list({
@@ -127,6 +140,7 @@ async function syncUserGmail(userId: string, days: number) {
 
     await prisma.emailRecord.create({
       data: {
+        orgId,
         gmailId,
         threadId: full.data.threadId ?? undefined,
         from,

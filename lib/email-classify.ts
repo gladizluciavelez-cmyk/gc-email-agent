@@ -108,17 +108,43 @@ export async function classifyEmail(params: {
 }): Promise<EmailClassification> {
   const { from, subject, body, receivedAt } = params;
 
-  const message = await anthropic.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 600,
-    system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: `Email received: ${receivedAt.toISOString()}\nFrom: ${from}\nSubject: ${subject}\n\nBody:\n${body.slice(0, 6000)}`,
-      },
-    ],
-  });
+  const fallback: EmailClassification = {
+    category: "OTHER",
+    summary: subject,
+    actionItem: null,
+    requiresReply: false,
+    projectHint: null,
+    meetingTitle: null,
+    meetingAt: null,
+    meetingAddress: null,
+    bidProjectNumber: null,
+    bidAgencyShort: null,
+    bidSummary: null,
+    bidAddress: null,
+  };
+
+  // A bad/expired ANTHROPIC_API_KEY, a rate limit, or a transient network
+  // error should degrade this one email to the fallback classification
+  // rather than throwing and aborting the entire sync batch — otherwise one
+  // bad key means zero emails get saved at all, and the dashboard sees a
+  // confusing crash instead of an inbox full of "OTHER" emails.
+  let message;
+  try {
+    message = await anthropic.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 600,
+      system: SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: `Email received: ${receivedAt.toISOString()}\nFrom: ${from}\nSubject: ${subject}\n\nBody:\n${body.slice(0, 6000)}`,
+        },
+      ],
+    });
+  } catch (err) {
+    console.error("Anthropic classify call failed, using fallback classification", err);
+    return fallback;
+  }
 
   const text = message.content
     .filter((b) => b.type === "text")
@@ -129,19 +155,6 @@ export async function classifyEmail(params: {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     return JSON.parse(jsonMatch ? jsonMatch[0] : text);
   } catch {
-    return {
-      category: "OTHER",
-      summary: subject,
-      actionItem: null,
-      requiresReply: false,
-      projectHint: null,
-      meetingTitle: null,
-      meetingAt: null,
-      meetingAddress: null,
-      bidProjectNumber: null,
-      bidAgencyShort: null,
-      bidSummary: null,
-      bidAddress: null,
-    };
+    return fallback;
   }
 }
